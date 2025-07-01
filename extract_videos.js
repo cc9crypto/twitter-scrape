@@ -28,6 +28,23 @@ if (ENABLE_GCS_UPLOAD) {
         gcsStorage = new Storage();
         gcsBucket = gcsStorage.bucket(GCS_BUCKET_NAME);
         console.log(`☁️  GCS initialized for bucket: ${GCS_BUCKET_NAME}`);
+        
+        // Test GCS permissions
+        console.log(`🔍 Testing GCS permissions...`);
+        gcsBucket.exists().then(([exists]) => {
+            if (exists) {
+                console.log(`✅ GCS bucket access confirmed`);
+            } else {
+                console.log(`⚠️  GCS bucket '${GCS_BUCKET_NAME}' not found or no access`);
+            }
+        }).catch(error => {
+            console.log(`⚠️  GCS permission test failed: ${error.message}`);
+            console.log(`💡 To fix GCS permissions on VM:`);
+            console.log(`   1. Stop VM: gcloud compute instances stop YOUR_VM_NAME`);
+            console.log(`   2. Add storage scope: gcloud compute instances set-service-account YOUR_VM_NAME --scopes=https://www.googleapis.com/auth/cloud-platform`);
+            console.log(`   3. Start VM: gcloud compute instances start YOUR_VM_NAME`);
+            console.log(`   4. Or create bucket with: gsutil mb gs://${GCS_BUCKET_NAME}`);
+        });
     } catch (error) {
         console.error(`❌ Failed to initialize GCS: ${error.message}`);
         console.log(`⚠️  Continuing with local storage only...`);
@@ -261,7 +278,8 @@ async function downloadUserVideos(allVideoUrls, username) {
             
             // Clear progress line
             process.stdout.write('\r' + ' '.repeat(100) + '\r');
-            console.log(`   ✅ [${index + 1}/${total}] ${username}: ${filename} (${fileSizeMB}MB in ${downloadDuration}s) - Saved locally`);
+            console.log(`   ✅ [${index + 1}/${total}] ${username}: ${filename} (${fileSizeMB}MB in ${downloadDuration}s)`);
+            console.log(`   📁 Local path: ${outputPath}`);
             
             // Upload to GCS
             let gcsResult = { success: false, reason: 'disabled' };
@@ -278,7 +296,19 @@ async function downloadUserVideos(allVideoUrls, username) {
                         console.log(`   ☁️  [${index + 1}/${total}] ${username}: ⏭️  Already exists in GCS: ${gcsResult.gcsPath}`);
                     }
                 } else {
-                    console.log(`   ☁️  [${index + 1}/${total}] ${username}: ❌ GCS upload failed: ${gcsResult.reason}`);
+                    // Clean up the error message for better readability
+                    let errorMsg = gcsResult.reason;
+                    if (errorMsg.includes('Provided scope(s) are not authorized')) {
+                        errorMsg = 'GCS Permission Error: VM service account needs Cloud Storage permissions';
+                    } else if (errorMsg.includes('code')) {
+                        try {
+                            const errorObj = JSON.parse(errorMsg);
+                            errorMsg = `${errorObj.error?.code || 'Unknown'}: ${errorObj.error?.message || errorMsg}`;
+                        } catch {
+                            // Keep original message if it's not JSON
+                        }
+                    }
+                    console.log(`   ☁️  [${index + 1}/${total}] ${username}: ❌ GCS upload failed: ${errorMsg}`);
                 }
             }
             
