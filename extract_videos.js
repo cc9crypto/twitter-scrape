@@ -148,7 +148,7 @@ function extractVideos(data, username) {
 
 // 📥 Smart download function with progress tracking
 async function downloadUserVideos(allVideoUrls, username) {
-    const downloadDir = path.join('C:\\Users\\HP\\Documents\\src\\twitter-stuff\\downloads', username);
+    const downloadDir = path.join('downloads', username);
     
     // Create user-specific download directory
     if (!fs.existsSync(downloadDir)) {
