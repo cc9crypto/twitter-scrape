@@ -25,29 +25,65 @@ let gcsBucket = null;
 
 if (ENABLE_GCS_UPLOAD) {
     try {
-        gcsStorage = new Storage();
+        // Initialize GCS with explicit configuration
+        gcsStorage = new Storage({
+            // Let it auto-detect credentials from environment
+            // This will use: gcloud auth application-default login credentials
+            // or service account metadata on VM
+        });
         gcsBucket = gcsStorage.bucket(GCS_BUCKET_NAME);
         console.log(`☁️  GCS initialized for bucket: ${GCS_BUCKET_NAME}`);
         
-        // Test GCS permissions
+        // Test GCS permissions synchronously during startup
         console.log(`🔍 Testing GCS permissions...`);
-        gcsBucket.exists().then(([exists]) => {
-            if (exists) {
-                console.log(`✅ GCS bucket access confirmed`);
-            } else {
-                console.log(`⚠️  GCS bucket '${GCS_BUCKET_NAME}' not found or no access`);
+        
+        // Use async/await for proper error handling
+        (async () => {
+            try {
+                // Test 1: Check if bucket exists and we have access
+                const [exists] = await gcsBucket.exists();
+                if (!exists) {
+                    console.log(`❌ GCS bucket '${GCS_BUCKET_NAME}' not found`);
+                    console.log(`💡 Create it with: gsutil mb gs://${GCS_BUCKET_NAME}`);
+                    return;
+                }
+                
+                // Test 2: Try to list objects (tests read permission)
+                const [files] = await gcsBucket.getFiles({ maxResults: 1 });
+                console.log(`✅ GCS bucket read access confirmed`);
+                
+                // Test 3: Try to create a test file (tests write permission)
+                const testFile = gcsBucket.file('.test-access');
+                await testFile.save('test', { 
+                    metadata: { 
+                        contentType: 'text/plain',
+                        metadata: { testFile: 'true' }
+                    }
+                });
+                
+                // Clean up test file
+                await testFile.delete();
+                console.log(`✅ GCS bucket write access confirmed`);
+                
+            } catch (error) {
+                console.log(`❌ GCS permission test failed: ${error.message}`);
+                console.log(`🔧 Troubleshooting steps:`);
+                console.log(`   1. Run: gcloud auth application-default login`);
+                console.log(`   2. Or run: gcloud auth login`);
+                console.log(`   3. Verify project: gcloud config get-value project`);
+                console.log(`   4. Check bucket access: gsutil ls gs://${GCS_BUCKET_NAME}`);
+                console.log(`   5. If on VM, ensure proper scopes are set`);
+                
+                // Don't disable GCS entirely, let individual uploads handle errors
+                console.log(`⚠️  GCS uploads will be attempted but may fail`);
             }
-        }).catch(error => {
-            console.log(`⚠️  GCS permission test failed: ${error.message}`);
-            console.log(`💡 To fix GCS permissions on VM:`);
-            console.log(`   1. Stop VM: gcloud compute instances stop YOUR_VM_NAME`);
-            console.log(`   2. Add storage scope: gcloud compute instances set-service-account YOUR_VM_NAME --scopes=https://www.googleapis.com/auth/cloud-platform`);
-            console.log(`   3. Start VM: gcloud compute instances start YOUR_VM_NAME`);
-            console.log(`   4. Or create bucket with: gsutil mb gs://${GCS_BUCKET_NAME}`);
-        });
+        })();
+        
     } catch (error) {
         console.error(`❌ Failed to initialize GCS: ${error.message}`);
         console.log(`⚠️  Continuing with local storage only...`);
+        gcsStorage = null;
+        gcsBucket = null;
     }
 }
 
@@ -67,8 +103,10 @@ async function uploadToGCS(localFilePath, username, filename) {
             return { success: true, reason: 'already exists', gcsPath };
         }
 
-        // Upload file to GCS
-        await file.save(fs.readFileSync(localFilePath), {
+        // Read file and upload
+        const fileBuffer = fs.readFileSync(localFilePath);
+        
+        await file.save(fileBuffer, {
             metadata: {
                 contentType: 'video/mp4',
                 metadata: {
@@ -76,12 +114,28 @@ async function uploadToGCS(localFilePath, username, filename) {
                     uploadedAt: new Date().toISOString(),
                     source: 'twitter-video-downloader'
                 }
-            }
+            },
+            // Add timeout and retry options
+            timeout: 60000, // 60 seconds timeout
+            resumable: true // Enable resumable uploads for large files
         });
 
         return { success: true, reason: 'uploaded', gcsPath };
     } catch (error) {
-        return { success: false, reason: error.message };
+        // Better error handling
+        let errorMessage = error.message;
+        
+        if (error.code === 403) {
+            errorMessage = `Permission denied. Run: gcloud auth application-default login`;
+        } else if (error.code === 401) {
+            errorMessage = `Authentication failed. Run: gcloud auth login`;
+        } else if (error.code === 404) {
+            errorMessage = `Bucket not found. Create with: gsutil mb gs://${GCS_BUCKET_NAME}`;
+        } else if (error.message.includes('scope')) {
+            errorMessage = `OAuth scope error. Run: gcloud auth application-default login`;
+        }
+        
+        return { success: false, reason: errorMessage };
     }
 }
 let globalStats = {
