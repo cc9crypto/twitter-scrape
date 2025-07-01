@@ -15,7 +15,7 @@ const USER_FILES = [
 ];
 
 // ☁️ GOOGLE CLOUD STORAGE CONFIGURATION
-const GCS_BUCKET_NAME = 'your-twitter-videos-bucket'; // 🔧 CHANGE THIS TO YOUR BUCKET NAME
+const GCS_BUCKET_NAME = 'twitter-scrape122'; // 🔧 CHANGE THIS TO YOUR BUCKET NAME
 const ENABLE_GCS_UPLOAD = true; // Set to false to disable GCS uploads
 const GCS_FOLDER_PREFIX = 'twitter-videos'; // Folder structure in GCS: twitter-videos/username/
 
