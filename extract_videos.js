@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Storage } from '@google-cloud/storage';
+import { Buffer } from 'node:buffer';
 
 // 🎯 USER CONFIGURATION - Add your request file names here
 const USER_FILES = [
